@@ -2,8 +2,10 @@
 #include "ring_buffer.h"
 #include <pthread.h>
 
+// Define the hash table size
 #define TABLE_SIZE 1000
 
+// Entry structure for the hash table
 typedef struct
 {
     key_type key;
@@ -11,26 +13,32 @@ typedef struct
     pthread_mutex_t lock; // Per-entry lock for fine-grained synchronization
 } entry_t;
 
+// Hash table structure
 typedef struct
 {
     entry_t entries[TABLE_SIZE];
 } hashtable_t;
 
+// Function to insert a key-value pair into the hash table
 void put(hashtable_t *ht, key_type key, value_type value)
 {
     index_t index = hash_function(key, TABLE_SIZE); // Compute the hash index
-    pthread_mutex_lock(&ht->entries[index].lock);   // Lock the entry
+
+    pthread_mutex_lock(&ht->entries[index].lock); // Lock the entry
     ht->entries[index].key = key;
     ht->entries[index].value = value;
     pthread_mutex_unlock(&ht->entries[index].lock); // Unlock the entry
 }
 
+// Function to retrieve the value associated with a key from the hash table
 value_type get(hashtable_t *ht, key_type key)
 {
     index_t index = hash_function(key, TABLE_SIZE); // Compute the hash index
-    pthread_mutex_lock(&ht->entries[index].lock);   // Lock the entry
+
+    pthread_mutex_lock(&ht->entries[index].lock); // Lock the entry
     value_type value = ht->entries[index].key == key ? ht->entries[index].value : 0;
     pthread_mutex_unlock(&ht->entries[index].lock); // Unlock the entry
+
     return value;
 }
 

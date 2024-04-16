@@ -1,28 +1,84 @@
 #include "ring_buffer.h"
 #include <stdio.h>
+#include <pthread.h>
+
+// Constants to define the number of producers, consumers, and items
+#define NUM_PRODUCERS 2
+#define NUM_CONSUMERS 2
+#define NUM_ITEMS 4
+
+// Global ring buffer instance
+struct ring r;
+
+// Producer thread function
+void *producer_thread(void *arg)
+{
+    int tid = *(int *)arg; // Thread ID
+
+    // Submit NUM_ITEMS items to the ring buffer
+    for (int i = 0; i < NUM_ITEMS; i++)
+    {
+        struct buffer_descriptor bd = {PUT, tid * 100 + i, tid * 100 + i, 0, 0};
+        ring_submit(&r, &bd);
+        printf("Producer %d submitted item: %d\n", tid, bd.v);
+    }
+
+    return NULL;
+}
+
+// Consumer thread function
+void *consumer_thread(void *arg)
+{
+    int tid = *(int *)arg; // Thread ID
+
+    // Retrieve NUM_ITEMS items from the ring buffer
+    for (int i = 0; i < NUM_ITEMS; i++)
+    {
+        struct buffer_descriptor bd;
+        ring_get(&r, &bd);
+        printf("Consumer %d retrieved item: %d\n", tid, bd.v);
+    }
+
+    return NULL;
+}
 
 int main()
 {
-    struct ring r;
+    // Initialize the ring buffer
     if (init_ring(&r) < 0)
     {
         printf("Failed to initialize ring buffer\n");
         return 1;
     }
 
-    struct buffer_descriptor bd1 = {PUT, 1, 10, 0, 0};
-    struct buffer_descriptor bd2 = {GET, 2, 0, 0, 0};
+    // Create producer and consumer threads
+    pthread_t producers[NUM_PRODUCERS];
+    pthread_t consumers[NUM_CONSUMERS];
+    int producer_ids[NUM_PRODUCERS];
+    int consumer_ids[NUM_CONSUMERS];
 
-    ring_submit(&r, &bd1);
-    ring_submit(&r, &bd2);
+    for (int i = 0; i < NUM_PRODUCERS; i++)
+    {
+        producer_ids[i] = i;
+        pthread_create(&producers[i], NULL, producer_thread, &producer_ids[i]);
+    }
 
-    struct buffer_descriptor bd_out1, bd_out2;
-    ring_get(&r, &bd_out1);
-    ring_get(&r, &bd_out2);
+    for (int i = 0; i < NUM_CONSUMERS; i++)
+    {
+        consumer_ids[i] = i;
+        pthread_create(&consumers[i], NULL, consumer_thread, &consumer_ids[i]);
+    }
 
-    printf("Retrieved items:\n");
-    printf("Item 1: req_type=%d, k=%u, v=%u\n", bd_out1.req_type, bd_out1.k, bd_out1.v);
-    printf("Item 2: req_type=%d, k=%u\n", bd_out2.req_type, bd_out2.k);
+    // Wait for all producer and consumer threads to complete
+    for (int i = 0; i < NUM_PRODUCERS; i++)
+    {
+        pthread_join(producers[i], NULL);
+    }
+
+    for (int i = 0; i < NUM_CONSUMERS; i++)
+    {
+        pthread_join(consumers[i], NULL);
+    }
 
     return 0;
 }

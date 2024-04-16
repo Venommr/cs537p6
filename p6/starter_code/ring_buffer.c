@@ -1,10 +1,10 @@
 #include "ring_buffer.h"
-
-#include "ring_buffer.h"
 #include <stdio.h>
+#include <semaphore.h>
 
 // Initialize the ring buffer
 // Set p_tail, p_head, c_tail, and c_head to 0
+// Initialize the semaphores buffer_slots and items
 // Return 0 on success, negative value on failure
 int init_ring(struct ring *r)
 {
@@ -18,8 +18,8 @@ int init_ring(struct ring *r)
     r->p_head = 0;
     r->c_tail = 0;
     r->c_head = 0;
-    pthread_mutex_init(&r->mutex, NULL); // Initialize the mutex
-    pthread_cond_init(&r->cond, NULL);   // Initialize the condition variable
+    sem_init(&r->buffer_slots, 0, RING_SIZE); // Initialize buffer_slots semaphore with RING_SIZE resources
+    sem_init(&r->items, 0, 0);                // Initialize items semaphore with 0 resources
     printf("init_ring: Initialization successful\n");
     return 0;
 }
@@ -33,16 +33,16 @@ void ring_submit(struct ring *r, struct buffer_descriptor *bd)
     {
         return;
     }
-    pthread_mutex_lock(&r->mutex); // Lock the mutex to ensure exclusive access
-    while ((r->p_head + 1) % RING_SIZE == r->c_tail)
-    {
-        // Buffer is full, wait on the condition variable
-        pthread_cond_wait(&r->cond, &r->mutex);
-    }
-    r->buffer[r->p_head] = *bd;              // Add the item to the buffer
+
+    printf("ring_submit: Waiting for available slot\n");
+    sem_wait(&r->buffer_slots); // Wait for an available slot in the ring buffer
+    printf("ring_submit: Got available slot\n");
+
+    r->buffer[r->p_head] = *bd;              // Copy the buffer descriptor to the ring buffer
     r->p_head = (r->p_head + 1) % RING_SIZE; // Update the producer head
-    pthread_cond_signal(&r->cond);           // Signal the condition variable to notify consumers
-    pthread_mutex_unlock(&r->mutex);         // Unlock the mutex
+
+    printf("ring_submit: Posting to items semaphore\n");
+    sem_post(&r->items); // Signal that a new item has been added to the ring buffer
 }
 
 // Get an item from the ring buffer
@@ -54,14 +54,14 @@ void ring_get(struct ring *r, struct buffer_descriptor *bd)
     {
         return;
     }
-    pthread_mutex_lock(&r->mutex); // Lock the mutex to ensure exclusive access
-    while (r->c_head == r->p_tail)
-    {
-        // Buffer is empty, wait on the condition variable
-        pthread_cond_wait(&r->cond, &r->mutex);
-    }
-    *bd = r->buffer[r->c_head];              // Retrieve an item from the buffer
+
+    printf("ring_get: Waiting for available item\n");
+    sem_wait(&r->items); // Wait for an available item in the ring buffer
+    printf("ring_get: Got available item\n");
+
+    *bd = r->buffer[r->c_head];              // Copy the buffer descriptor from the ring buffer
     r->c_head = (r->c_head + 1) % RING_SIZE; // Update the consumer head
-    pthread_cond_signal(&r->cond);           // Signal the condition variable to notify producers
-    pthread_mutex_unlock(&r->mutex);         // Unlock the mutex
+
+    printf("ring_get: Posting to buffer_slots semaphore\n");
+    sem_post(&r->buffer_slots); // Signal that a slot has become available in the ring buffer
 }
