@@ -1,67 +1,60 @@
 #include "ring_buffer.h"
+#include "common.h"
 
-#include "ring_buffer.h"
+#include <stdlib.h>
+#include <stdatomic.h>
+#include <string.h>
 #include <stdio.h>
 
-// Initialize the ring buffer
-// Set p_tail, p_head, c_tail, and c_head to 0
-// Return 0 on success, negative value on failure
-int init_ring(struct ring *r)
-{
-    printf("init_ring: r = %p\n", (void *)r);
-    if (r == NULL)
-    {
-        printf("init_ring: r is NULL\n");
-        return -1;
-    }
-    r->p_tail = 0;
-    r->p_head = 0;
-    r->c_tail = 0;
-    r->c_head = 0;
-    pthread_mutex_init(&r->mutex, NULL); // Initialize the mutex
-    pthread_cond_init(&r->cond, NULL);   // Initialize the condition variable
-    printf("init_ring: Initialization successful\n");
-    return 0;
+
+int init_ring(struct ring* r){
+	if(r == NULL){
+		return -1;
+	}
+	return 0;
 }
 
-// Submit a new item to the ring buffer
-// Block if there's not enough space
-// Make sure it's thread-safe
-void ring_submit(struct ring *r, struct buffer_descriptor *bd)
-{
-    if (r == NULL || bd == NULL)
-    {
-        return;
-    }
-    pthread_mutex_lock(&r->mutex); // Lock the mutex to ensure exclusive access
-    while ((r->p_head + 1) % RING_SIZE == r->c_tail)
-    {
-        // Buffer is full, wait on the condition variable
-        pthread_cond_wait(&r->cond, &r->mutex);
-    }
-    r->buffer[r->p_head] = *bd;              // Add the item to the buffer
-    r->p_head = (r->p_head + 1) % RING_SIZE; // Update the producer head
-    pthread_cond_signal(&r->cond);           // Signal the condition variable to notify consumers
-    pthread_mutex_unlock(&r->mutex);         // Unlock the mutex
+void ring_submit(struct ring* r, struct buffer_descriptor* bd){
+	index_t p_head, p_next;
+	do {
+		p_head = r->p_head;
+		p_next = (p_head+1) % RING_SIZE;
+		if(p_next == r->c_tail){
+			sched_yield();
+		} 
+	} while(!atomic_compare_exchange_strong(&r->p_head, &p_head, p_next));
+	memcpy(&r->buffer[p_head], bd, sizeof(struct buffer_descriptor));
+	/*r->buffer[p_head].k = bd->k;
+	r->buffer[p_head].v = bd->v;
+	r->buffer[p_head].req_type = bd->req_type;
+	r->buffer[p_head].res_off = bd->res_off;
+	r->buffer[p_head].ready = 0;*/
+	
+	index_t p_tail;
+	do{
+		p_tail = r->p_tail;
+	} while(!atomic_compare_exchange_strong(&r->p_tail, &p_tail, p_next));
 }
 
-// Get an item from the ring buffer
-// Block if the buffer is empty
-// Make sure it's thread-safe
-void ring_get(struct ring *r, struct buffer_descriptor *bd)
-{
-    if (r == NULL || bd == NULL)
-    {
-        return;
-    }
-    pthread_mutex_lock(&r->mutex); // Lock the mutex to ensure exclusive access
-    while (r->c_head == r->p_tail)
-    {
-        // Buffer is empty, wait on the condition variable
-        pthread_cond_wait(&r->cond, &r->mutex);
-    }
-    *bd = r->buffer[r->c_head];              // Retrieve an item from the buffer
-    r->c_head = (r->c_head + 1) % RING_SIZE; // Update the consumer head
-    pthread_cond_signal(&r->cond);           // Signal the condition variable to notify producers
-    pthread_mutex_unlock(&r->mutex);         // Unlock the mutex
+void ring_get(struct ring* r, struct buffer_descriptor* bd){
+	index_t c_head, c_next;
+	do {
+		c_head = r->c_head;
+		c_next = (c_head + 1) % RING_SIZE;
+		if(c_next == r->p_tail){
+			sched_yield();
+		}
+	} while(!atomic_compare_exchange_strong(&r->c_head, &c_head, c_next));
+		memcpy(bd, &r->buffer[c_head], sizeof(struct buffer_descriptor));
+	/*bd->k = r->buffer[c_head].k;
+	bd->v = r->buffer[c_head].v;
+	bd->res_off = r->buffer[c_head].res_off;
+	bd->req_type = r->buffer[c_head].req_type;
+*/
+	index_t c_tail;
+	do{
+		c_tail = r->c_tail;
+	}while (!atomic_compare_exchange_strong(&r->c_tail, &c_tail, c_next));
+	
 }
+
